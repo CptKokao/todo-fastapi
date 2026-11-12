@@ -24,13 +24,15 @@ python3.12 -m venv venv
 # локально (cwd = app/)
 cd app && ../venv/bin/uvicorn main:app --reload
 
-# весь стек (api + postgres + redis)
+# весь стек (api + postgres + redis), dev-режим с автоперезагрузкой
 docker compose up --build
 ```
 
 - API: `http://localhost:8000`, Postgres: `localhost:5432` (`user` / `pass` / `mydb`).
+- Сервис `api` работает в dev-режиме: `./app` смонтирован в `/app`, команда — `uvicorn ... --reload`. Правки кода на хосте подхватываются без пересборки; изменения `requirements.txt` и `Dockerfile` **требуют** `docker compose up -d --build api` (зависимости ставятся и код копируется при сборке через `COPY app .`).
 - Контейнер `api` публикует `8000`: если запущен `docker compose`, локальный `uvicorn` упадёт с `[Errno 98] Address already in use`. Освободить порт — `docker compose stop api`, либо запускать локально с `--port 8001`.
-- `DATABASE_URL` читается из env, дефолт в `app/core/config.py`. Драйвер — psycopg 3 (`postgresql://` уже мапится на него в SQLAlchemy 2.1).
+- Конфиг из env (`app/core/config.py`): `DATABASE_URL` (дефолт `postgresql://user:pass@localhost:5432/mydb`) и `REDIS_URL` (дефолт `redis://localhost:6379/0`; в compose переопределён на `redis://redis:6379/0`). Драйвер БД — psycopg 3 (`postgresql://` уже мапится на него в SQLAlchemy 2.1).
+- Redis — кэш списка задач: `RedisCache` (`app/cache/redis.py`) создаётся в DI (`get_redis_cache`) из `REDIS_URL` и передаётся в `TaskService`. Ключ `tasks:all`, TTL не задан, порт `6379` проброшен на хост.
 - В проекте **нет** тестов, линтеров, `pyproject.toml` и Alembic. Не выдумывать команды `pytest`/`ruff` — их пока нет.
 
 ## Слои (порядок вызовов строго такой)
@@ -41,6 +43,7 @@ docker compose up --build
 | DI             | `app/api/dependencies.py`     | сборка зависимостей (`get_task_service`)                                        |
 | Сервисы        | `app/services/`               | бизнес-логика, транзакции (`db.commit()`), доменные исключения (`TaskNotFound`) |
 | Репозитории    | `app/repositories/`           | **все** запросы к SQLAlchemy. Без `commit()`                                    |
+| Кэш            | `app/cache/`                  | Redis-кэш (`RedisCache`), собирается в DI. Без бизнес-логики                    |
 | Модели / схемы | `app/models/`, `app/schemas/` | ORM и Pydantic отдельно; схема ответа с `ConfigDict(from_attributes=True)`      |
 
 Новая сущность = та же цепочка файлов (router → dependency → service → repository → model → schema), без «срезания» слоёв.
@@ -68,7 +71,7 @@ docker compose up --build
 - `TaskService.update_task` ловит `Exception`, но `TaskRepository.get_by_id` возвращает `None` для отсутствующего id → исключение не срабатывает, падает `AttributeError` на `None.title`. Проверять `None`, а не ловить исключения.
 - `main.py` хардкодит CORS-origins, хотя они есть в `get_settings().CORS_ALLOW_ORIGINS` — источник правды должен быть один.
 - Схема БД создаётся через `Base.metadata.create_all` в `lifespan`; миграций нет. Изменение существующей таблицы требует пересоздания (`docker compose down -v`) или ручного SQL.
-- `redis` поднят в `docker-compose.yml`, но кодом не используется.
+- Кэш `tasks:all` инвалидируется вручную в сервисе (`create`/`update`/`delete`) и не имеет TTL: забудешь `self.cache.delete(...)` в новой мутации — список будет отдаваться из кэша устаревшим. Redis недоступен → исключение, fallback на БД нет.
 - Остался отладочный `print(...)` в `TaskService.get_tasks`.
 - `async def` эндпоинты вызывают **синхронный** SQLAlchemy `Session` и блокируют event loop. Держать работу с БД в обычных `def` эндпоинтах либо переходить на async SQLAlchemy — не смешивать.
 
@@ -77,6 +80,7 @@ docker compose up --build
 ```
 app/main.py        создание app, lifespan, CORS, include_router
 app/api/           dependencies.py, routers/
+app/cache/         redis.py (RedisCache: get/set/delete)
 app/core/          config.py (настройки из env)
 app/db/            session.py (engine, session_factory, get_db)
 app/models/        base.py (Base с UUID pk), ORM-модели

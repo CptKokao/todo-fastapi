@@ -1,16 +1,20 @@
 services:
   api:
-    build: .                     # ← ссылается на Dockerfile в текущей папке
+    build: . # ← ссылается на Dockerfile в текущей папке
     ports:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://user:pass@db:5432/mydb
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./app:/app # код с хоста вместо копии из образа (dev-режим)
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - db
       - redis
 
   db:
-    image: postgres:16-alpine      # ← готовый образ, Dockerfile не нужен
+    image: postgres:16-alpine # ← готовый образ, Dockerfile не нужен
     ports:
       - "5432:5432"
     environment:
@@ -22,6 +26,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    ports:
+      - "6379:6379"
 
 volumes:
   pgdata:

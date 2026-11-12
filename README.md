@@ -26,17 +26,17 @@
 
 ## Стек
 
-| Компонент  | Версия      | Роль                                             |
-| ---------- | ----------- | ------------------------------------------------ |
-| Python     | 3.12        | рантайм                                          |
-| FastAPI    | 0.162.0     | HTTP-фреймворк, валидация, OpenAPI               |
-| Starlette  | 1.10.0      | ASGI-основа FastAPI                              |
-| Uvicorn    | 0.54.0      | ASGI-сервер                                      |
-| Pydantic   | 2.14.2      | схемы запросов/ответов (v2)                      |
-| SQLAlchemy | 2.1.6       | ORM и доступ к БД                                |
-| psycopg    | 3.3.6       | драйвер PostgreSQL (psycopg 3, не psycopg2!)     |
-| PostgreSQL | 16 (alpine) | база данных                                      |
-| Redis      | 7 (alpine)  | поднят в compose, **кодом пока не используется** |
+| Компонент  | Версия      | Роль                                         |
+| ---------- | ----------- | -------------------------------------------- |
+| Python     | 3.12        | рантайм                                      |
+| FastAPI    | 0.162.0     | HTTP-фреймворк, валидация, OpenAPI           |
+| Starlette  | 1.10.0      | ASGI-основа FastAPI                          |
+| Uvicorn    | 0.54.0      | ASGI-сервер                                  |
+| Pydantic   | 2.14.2      | схемы запросов/ответов (v2)                  |
+| SQLAlchemy | 2.1.6       | ORM и доступ к БД                            |
+| psycopg    | 3.3.6       | драйвер PostgreSQL (psycopg 3, не psycopg2!) |
+| PostgreSQL | 16 (alpine) | база данных                                  |
+| Redis      | 7 (alpine)  | кэш списка задач для `GET /tasks`            |
 
 Полный список с точными версиями — [`requirements.txt`](requirements.txt). Других менеджеров зависимостей (`pyproject.toml`, Poetry, Pipenv) в проекте нет.
 
@@ -61,7 +61,7 @@ docker compose up --build
 
 Остановить: `docker compose down`. Удалить и данные БД: `docker compose down -v`.
 
-> Образ собирается по [`Dockerfile`](Dockerfile): `requirements.txt` ставится в образ, содержимое `app/` копируется в `/app`, запускается `uvicorn main:app`. Код «запекается» при сборке — после правок нужен `docker compose up --build`, `--reload` внутри контейнера не работает.
+> [`docker-compose.yml`](docker-compose.yml) поднимает `api` в dev-режиме: `./app` монтируется в `/app`, uvicorn стартует с `--reload`, поэтому правки кода на хосте применяются сразу, без пересборки. Правки `requirements.txt` и `Dockerfile` по-прежнему требуют `docker compose up -d --build api`. Образ собирается по [`Dockerfile`](Dockerfile): `requirements.txt` ставится в образ, содержимое `app/` копируется в `/app`, запускается `uvicorn main:app` (эта копия используется, если убрать `volumes`).
 
 ### Вариант 2: локально с venv
 
@@ -96,8 +96,9 @@ cd app
 | Переменная     | По умолчанию                                 | Описание                                                                                              |
 | -------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL` | `postgresql://user:pass@localhost:5432/mydb` | DSN для SQLAlchemy. Схема `postgresql://` в SQLAlchemy 2.1 автоматически мапится на драйвер psycopg 3 |
+| `REDIS_URL`    | `redis://localhost:6379/0`                   | адрес Redis для `RedisCache`. Кэшируется только список `GET /tasks`                                   |
 
-В `docker-compose.yml` значение переопределяется на `postgresql://user:pass@db:5432/mydb` (хост `db` — имя сервиса внутри compose-сети).
+В `docker-compose.yml` значения переопределяются: `DATABASE_URL=postgresql://user:pass@db:5432/mydb` и `REDIS_URL=redis://redis:6379/0` (хосты `db` и `redis` — имена сервисов внутри compose-сети; `localhost` там указывал бы на сам контейнер `api`).
 
 CORS: разрешён источник `http://localhost:3000`. Список продублирован в `main.py` и в `Config.CORS_ALLOW_ORIGINS` — это известная шероховатость (см. [ограничения](#известные-ограничения-и-todo)).
 
@@ -124,6 +125,7 @@ flowchart TD
 | DI          | `app/api/dependencies.py` | создание сервисов для роутеров                                          | бизнес-логика                       |
 | Сервисы     | `app/services/`           | сценарии, транзакции (`db.commit()`), доменные исключения               | прямые SQL-запросы, знание про HTTP |
 | Репозитории | `app/repositories/`       | **все** запросы к SQLAlchemy                                            | `commit()`, бизнес-правила          |
+| Кэш         | `app/cache/`              | Redis-кэш (`RedisCache`), создаётся в DI                                | бизнес-логика, SQL                  |
 | Модели      | `app/models/`             | ORM-описание таблиц                                                     | Pydantic-валидация                  |
 | Схемы       | `app/schemas/`            | контракты API (Pydantic)                                                | SQL, ORM-логика                     |
 
@@ -136,6 +138,8 @@ flowchart TD
 5. ORM возвращает объекты `TaskORM`; сервис превращает их в `TaskSchema` через `model_validate` (`from_attributes=True`).
 6. Роутер возвращает список; аннотация `-> list[TaskSchema]` используется FastAPI и для валидации, и для OpenAPI-схемы.
 
+Перед обращением к репозиторию сервис проверяет кэш `tasks:all` в Redis: при попадании сразу возвращает данные, при промахе читает БД и заполняет кэш. `POST`, `PATCH` и `DELETE` инвалидируют ключ.
+
 ---
 
 ## Структура проекта
@@ -145,9 +149,11 @@ flowchart TD
 ├── app/                     # весь код приложения (корень импортов)
 │   ├── main.py              # создание FastAPI, lifespan, CORS, include_router
 │   ├── api/
-│   │   ├── dependencies.py  # DI: get_task_service
+│   │   ├── dependencies.py  # DI: get_task_service, get_redis_cache
 │   │   └── routers/
 │   │       └── tasks.py     # эндпоинты /tasks
+│   ├── cache/
+│   │   └── redis.py         # RedisCache: get/set/delete
 │   ├── core/
 │   │   └── config.py        # Config + get_settings() из env
 │   ├── db/
@@ -176,7 +182,8 @@ flowchart TD
 - [`app/main.py`](app/main.py) — точка входа. В `lifespan` вызывает `Base.metadata.create_all(bind=engine)`: таблицы создаются при старте, миграций нет.
 - [`app/db/session.py`](app/db/session.py) — `create_engine` выполняется на импорте модуля; `get_db` — генератор, закрывающий сессию в `finally`.
 - [`app/models/base.py`](app/models/base.py) — общий `Base`; первичный ключ `id: Mapped[str]` со значением `str(uuid4())`, генерируемым в Python.
-- [`app/services/task.py`](app/services/task.py) — единственный слой, вызывающий `db.commit()`.
+- [`app/services/task.py`](app/services/task.py) — единственный слой, вызывающий `db.commit()`; здесь же чтение/запись кэша и его инвалидация.
+- [`app/cache/redis.py`](app/cache/redis.py) — тонкая обёртка над `redis.Redis`: `get`/`set`/`delete`, JSON-сериализация, опциональный TTL.
 
 ---
 
@@ -291,7 +298,7 @@ curl -i -X DELETE http://localhost:8000/tasks/<id>
 - **`PATCH` несуществующего id → `500`, а не `404`**: `TaskService.update_task` ловит `Exception`, но `TaskRepository.get_by_id` возвращает `None`, и код падает с `AttributeError` на `None.title`.
 - **Нет миграций**: схема создаётся через `create_all`, `Alembic` не подключён.
 - **Нет тестов и линтеров**: `pytest`, `ruff` и `pyproject.toml` отсутствуют. Команды `pytest`/`ruff` не существуют — не запускайте их «на всякий случай».
-- **`redis` не используется** кодом — сервис есть только в `docker-compose.yml`.
+- **Кэш с ручной инвалидацией**: кэшируется только `GET /tasks` (ключ `tasks:all`), TTL не задан, мутации сбрасывают ключ в сервисе. Если Redis недоступен, запрос падает с исключением — fallback на БД нет.
 - **CORS-источники продублированы** в `main.py` и `core/config.py`.
 - **`async def` + синхронный SQLAlchemy `Session`**: обработчики `async` блокируют event loop на время запросов к БД. Либо держать работу с БД в обычных `def`-эндпоинтах, либо перейти на async SQLAlchemy — но не смешивать.
 - **Отладочный `print(...)`** остался в `TaskService.get_tasks`.
