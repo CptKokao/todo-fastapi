@@ -1,9 +1,9 @@
 from fastapi import FastAPI,status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from app.models.base import Base
-from app.db.session import engine
-from app.api.routers.tasks import router as task_router
+from models.base import Base
+from db.session import engine
+from api.routers.tasks import router as task_router
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):

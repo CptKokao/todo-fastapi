@@ -1,5 +1,4 @@
-from ast import List
-from app.models.task import TaskORM
+from models.task import TaskORM
 
 from sqlalchemy.orm import Session
 

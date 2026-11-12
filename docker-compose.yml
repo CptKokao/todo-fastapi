@@ -1,0 +1,27 @@
+services:
+  api:
+    build: .                     # ← ссылается на Dockerfile в текущей папке
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/mydb
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:16-alpine      # ← готовый образ, Dockerfile не нужен
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: mydb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+
+volumes:
+  pgdata:

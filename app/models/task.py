@@ -1,6 +1,6 @@
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Mapped, Session, mapped_column
 
-from app.models.base import Base
+from models.base import Base
 
 class TaskORM(Base):
     __tablename__ = "tasks"

@@ -1,5 +1,5 @@
-from app.repositories.task import TaskRepository
-from app.schemas.tasks import TaskSchema,TaskCreateSchema, TaskUpdateSchema
+from repositories.task import TaskRepository
+from schemas.tasks import TaskSchema,TaskCreateSchema, TaskUpdateSchema
 
 class TaskNotFound(Exception):
     pass
