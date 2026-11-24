@@ -20,5 +20,7 @@ app.add_middleware(
 )
 
 
+print(app)
+
 
 
