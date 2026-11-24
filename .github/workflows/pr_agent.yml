@@ -2,6 +2,7 @@ on:
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
   issue_comment:
+    types: [created, edited]
 
 jobs:
   pr_agent_job:
@@ -19,6 +20,10 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          github_action_config.auto_review: "true"
-          github_action_config.auto_describe: "true"
-          github_action_config.auto_improve: "true"
+          GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
+          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "true"
+          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "true"
+          # synchronize нет в дефолтном списке — без него пуш в PR пропускается ("Skipping action: synchronize")
+          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
+          # авто-аппрув: настройка хоста, из репозиторного .pr_agent.toml не применяется
+          # CONFIG__ENABLE_AUTO_APPROVAL: "true"
