@@ -63,17 +63,14 @@ docker compose up --build
 - зависимости через `Annotated[T, Depends(...)]` и type-alias, а не `param = Depends(...)`;
 - возвращаемый тип вместо `response_model`, `...` как значение по умолчанию не использовать.
 
-Существующий код написан в старом стиле (`param: T = Depends(...)`). Мигрировать постепенно и **не смешивать два стиля в одном файле**: правишь файл — приводи его к `Annotated` целиком.
+`api/routers/tasks.py` уже переведён на `Annotated`, `api/dependencies.py` — ещё в старом стиле (`param: T = Depends(...)`). Мигрировать постепенно и **не смешивать два стиля в одном файле**: правишь файл — приводи его к `Annotated` целиком.
 
 ## Известные шероховатости (чинить при касании файла)
 
 - `TaskUpdateSchema.completed: bool | None = False` — дефолт `None`, иначе `PATCH` только с `title` молча сбрасывает `completed` в `False`.
-- `TaskService.update_task` ловит `Exception`, но `TaskRepository.get_by_id` возвращает `None` для отсутствующего id → исключение не срабатывает, падает `AttributeError` на `None.title`. Проверять `None`, а не ловить исключения.
 - `main.py` хардкодит CORS-origins, хотя они есть в `get_settings().CORS_ALLOW_ORIGINS` — источник правды должен быть один.
 - Схема БД создаётся через `Base.metadata.create_all` в `lifespan`; миграций нет. Изменение существующей таблицы требует пересоздания (`docker compose down -v`) или ручного SQL.
 - Кэш `tasks:all` инвалидируется вручную в сервисе (`create`/`update`/`delete`) и не имеет TTL: забудешь `self.cache.delete(...)` в новой мутации — список будет отдаваться из кэша устаревшим. Redis недоступен → исключение, fallback на БД нет.
-- Остался отладочный `print(...)` в `TaskService.get_tasks`.
-- `async def` эндпоинты вызывают **синхронный** SQLAlchemy `Session` и блокируют event loop. Держать работу с БД в обычных `def` эндпоинтах либо переходить на async SQLAlchemy — не смешивать.
 
 ## Структура
 

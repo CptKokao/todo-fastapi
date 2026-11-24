@@ -208,6 +208,7 @@ flowchart TD
 | Метод    | Путь               | Тело запроса       | Успешный ответ            | Ошибки                                             |
 | -------- | ------------------ | ------------------ | ------------------------- | -------------------------------------------------- |
 | `GET`    | `/tasks`           | —                  | `200`, `list[TaskSchema]` | —                                                  |
+| `GET`    | `/tasks/{task_id}` | —                  | `200`, `TaskSchema`       | `404` — задача не найдена                          |
 | `POST`   | `/tasks`           | `TaskCreateSchema` | `201`, `TaskSchema`       | `422` — невалидное тело                            |
 | `PATCH`  | `/tasks/{task_id}` | `TaskUpdateSchema` | `200`, `TaskSchema`       | `404` — задача не найдена, `422` — невалидное тело |
 | `DELETE` | `/tasks/{task_id}` | —                  | `204`, пустое тело        | `404` — задача не найдена                          |
@@ -240,6 +241,10 @@ class TaskUpdateSchema(BaseModel):     # PATCH (частичное обновл�
 ```bash
 # список задач
 curl http://localhost:8000/tasks
+
+# получить одну
+curl http://localhost:8000/tasks/<id>
+# → 200 {"id": "a3f…", "title": "Написать README", "completed": false}
 
 # создать
 curl -X POST http://localhost:8000/tasks \
@@ -295,11 +300,8 @@ curl -i -X DELETE http://localhost:8000/tasks/<id>
 Проект учебный, поэтому часть мест намеренно или случайно оставлена «как есть». Полный список с указаниями, что чинить при касании файла, — в [`AGENTS.md`](AGENTS.md#известные-шероховатости-чинить-при-касании-файла). Кратко:
 
 - **`PATCH` сбрасывает `completed`**: у `TaskUpdateSchema.completed` дефолт `False` вместо `None`, поэтому обновление только `title` молча ставит `completed=false`. Обходной путь — всегда передавать оба поля.
-- **`PATCH` несуществующего id → `500`, а не `404`**: `TaskService.update_task` ловит `Exception`, но `TaskRepository.get_by_id` возвращает `None`, и код падает с `AttributeError` на `None.title`.
 - **Нет миграций**: схема создаётся через `create_all`, `Alembic` не подключён.
 - **Нет тестов и линтеров**: `pytest`, `ruff` и `pyproject.toml` отсутствуют. Команды `pytest`/`ruff` не существуют — не запускайте их «на всякий случай».
 - **Кэш с ручной инвалидацией**: кэшируется только `GET /tasks` (ключ `tasks:all`), TTL не задан, мутации сбрасывают ключ в сервисе. Если Redis недоступен, запрос падает с исключением — fallback на БД нет.
 - **CORS-источники продублированы** в `main.py` и `core/config.py`.
-- **`async def` + синхронный SQLAlchemy `Session`**: обработчики `async` блокируют event loop на время запросов к БД. Либо держать работу с БД в обычных `def`-эндпоинтах, либо перейти на async SQLAlchemy — но не смешивать.
-- **Отладочный `print(...)`** остался в `TaskService.get_tasks`.
 - **Нет аутентификации, пагинации, временных меток** (`created_at`/`updated_at`) у задач.
