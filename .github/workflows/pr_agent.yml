@@ -1,6 +1,6 @@
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review, synchronize]
   issue_comment:
 
 jobs:
@@ -13,10 +13,12 @@ jobs:
       pull-requests: write
     name: Run pr agent on every pull request, respond to user comments
     steps:
-      uses: docker://pragent/pr-agent:0.50.0-github_action
-      env:
-        DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        github_action_config.auto_review: "true"
-        github_action_config.auto_describe: "true"
-        github_action_config.auto_improve: "true"
+      - name: PR Agent action step
+        id: pragent
+        uses: docker://pragent/pr-agent:0.50.0-github_action
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "true"
+          github_action_config.auto_improve: "true"
