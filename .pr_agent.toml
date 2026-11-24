@@ -1,0 +1,5 @@
+[config]
+model = "deepseek/deepseek-flash@v4.1" 
+fallback_models = []
+reasoning_effort = "none"
+response_language = "ru-RU"
