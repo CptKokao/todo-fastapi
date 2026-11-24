@@ -3,3 +3,4 @@ model = "deepseek/deepseek-flash@v4.1"
 fallback_models = []
 reasoning_effort = "none"
 response_language = "ru-RU"
+custom_model_max_tokens = 1048576
